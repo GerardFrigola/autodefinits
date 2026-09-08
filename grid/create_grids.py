@@ -1,6 +1,7 @@
 ﻿from itertools import combinations
 import random
 import os
+from collections import deque
 
 ROWS, COLS = 17, 11
 INNER_ROWS = list(range(1, ROWS - 1))
@@ -24,7 +25,7 @@ FIXED_NOT_AVALABLE = {(1, c) for c in range(1, COLS, 2)} |\
 MAX_INNER_DEFS = len(INNER_ROWS) * 2
 MAX_TOTAL_DEFS = len(FIXED_DEFS) + MAX_INNER_DEFS
 
-TOTAL_DEFS_RANGE = (30, 41)
+TOTAL_DEFS_RANGE = (38, 44)
 ROWS_DEFS_RANGE = (0, 2)
 COLS_DEFS_RANGE = (1, 3)
 ###
@@ -83,6 +84,7 @@ def initialize_available_cells():
 def update_available_cells(available_cells, grid, row, combo):
     # TODO: Check que no es crein celles de resposta aillades. -> Hauria d'anar a update_available_combinations?
     # TODO: Check nombre de definicions totals, per columna i per fila i podar -> Hauria d'anar a dfs i una funcion nova?
+    # TODO: Limit de nombre de paraules amb cert nombre de lletres. 
     
     new_available_cells = [
         r.copy() for r in available_cells
@@ -96,7 +98,7 @@ def update_available_cells(available_cells, grid, row, combo):
 
         # Si la cella bloqueja una solució horitzontal de la primera columna,
         #   la cella de la primera columna haura de tenir l'altre solució horitzontal.      
-        if col <= MIN_LETTERS_PER_WORD:
+        if col <= MIN_LETTERS_PER_WORD and row%2 == 0:
             for c in range(2, MIN_LETTERS_PER_WORD):
                 new_available_cells[row+1][c] = False
 
@@ -105,15 +107,15 @@ def update_available_cells(available_cells, grid, row, combo):
         if row < MIN_LETTERS_PER_WORD:
 
             if col%2 == 0:
-                for r in range(row+1, MIN_LETTERS_PER_WORD): # NOTE: Podria començar a `row+1`en comptes de 1 perque les celles de dalt ja no les provara
+                for r in range(row+1, MIN_LETTERS_PER_WORD): # NOTE: Comença a `row+1`en comptes de 1 perque les celles de dalt ja no les provara
                     # print(f"Blocking vertical solution for cell ({r}, {col+1}) due to cell ({row}, {col})")
                     new_available_cells[r][col+1] = False
             else:
-                for r in range(row+1, row+MIN_LETTERS_PER_WORD+1): # NOTE: Comença a `row+1`en comptes de 1 perque les celles de dalt i dreta ja no les provara
+                for r in range(row+1, row+MIN_LETTERS_PER_WORD+1): # NOTE: Comença a `row+1`en comptes de 1 perque les celles de dalt ja no les provara
                     # print(f"Blocking vertical solution for cell ({r}, {col-1}) due to cell ({row}, {col})")
                     new_available_cells[r][col-1] = False
 
-            # Si estem a la segona fila i a les primeres columnes, bloqueja la solució horitzontal
+            # Si estem a la segona fila i a les primeres <MIN_LETTERS_PER_WORD> columnes, bloqueja la solució horitzontal
             #     de la cella (0,0), i per tant la cella (0,0) haurà de tenir la solució vertical. 
             if row==1 and col<MIN_LETTERS_PER_WORD:
                 for r in range(2, MIN_LETTERS_PER_WORD, 2): # Cada 2 perque les altres ja no estan disponibles des de l'inici.
@@ -182,7 +184,55 @@ def exists_future_solution(total_defs, available_cells, row_idx):
     Returns: 
         - True if there exists a future solution, False otherwise. 
     """
-    pass
+
+    if total_defs > MAX_TOTAL_DEFS:
+        return False
+
+    # Si no se llegarà al minimo de definiciones. 
+    if ROWS_DEFS_RANGE[1] * (ROWS - row_idx) + total_defs < TOTAL_DEFS_RANGE[0]:
+        return False
+    
+    return True
+
+
+def has_connected_solution(grid):
+    """
+    Comprueba que todas las celdas de respuesta, representadas por False,
+    estén conectadas entre sí ortogonalmente.
+    """
+
+    visited = [[False for _ in range(COLS)] for _ in range(ROWS)]
+
+    response_cells = [
+        (r, c)
+        for r in range(ROWS)
+        for c in range(COLS)
+        if not grid[r][c]
+    ]
+
+    start_r, start_c = response_cells[0]
+    queue = deque([(start_r, start_c)])
+    visited[start_r][start_c] = True
+    visited_count = 1
+
+    while queue:
+        curr_r, curr_c = queue.popleft()
+
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            next_r = curr_r + dr
+            next_c = curr_c + dc
+
+            if (
+                0 <= next_r < ROWS
+                and 0 <= next_c < COLS
+                and not grid[next_r][next_c] # No es definicion
+                and not visited[next_r][next_c] 
+            ):
+                visited[next_r][next_c] = True
+                visited_count += 1
+                queue.append((next_r, next_c))
+
+    return visited_count == len(response_cells)
 
 
 def generate_geometry(max_candidates=10):
@@ -199,20 +249,20 @@ def generate_geometry(max_candidates=10):
         
         if row_idx == ROWS: # Ja ens hem passat la ultima fila, comprovem.
             validity_checks[0] += 1
-            print(f"Validity check {validity_checks[0]:,}:")
+            # print(f"Validity check {validity_checks[0]:,}:")
 
             if total_defs >= TOTAL_DEFS_RANGE[0]: # comprovar que el numero de definicions esta dins el limit. 
-                if all(COLS_DEFS_RANGE[0] <= col_counts[col] for col in range(1, COLS)):
-                    print(f"   Solution {len(solutions["grid"]) + 1} found! With total definitions: {total_defs}")
-                    solutions["grid"].append([row[:] for row in grid])
-                    solutions["total_defs"] = total_defs
-
-                    # print_examples([grid], limit=1)
-                    
-                else:
-                    print(f"   Invalid solution with not enough definitions in a column: {col_counts[1:]} not all in range ({COLS_DEFS_RANGE[0]}, {COLS_DEFS_RANGE[1]})")
-            else:
-                print(f"   Invalid solution with not enough total definitions: {total_defs} not in range ({TOTAL_DEFS_RANGE[0]}, {TOTAL_DEFS_RANGE[1]})")
+                if all(COLS_DEFS_RANGE[0] <= col_counts[col] for col in range(1, COLS)): # Comprovar que les columnes tenen el numero de definicions correctes. 
+                    if has_connected_solution(grid): # Comprovar que totes les celdes de resposta estan connectades.    
+                        if (len(solutions["grid"]) + 1)%1000 == 0:
+                            print(f"   Solution {len(solutions["grid"]) + 1} found! With total definitions: {total_defs}")
+                        solutions["grid"].append([row[:] for row in grid])
+                        solutions["total_defs"] = total_defs
+                    # print_examples(solutions, limit=1)
+                # else:
+                    # print(f"   Invalid solution with not enough definitions in a column: {col_counts[1:]} not all in range ({COLS_DEFS_RANGE[0]}, {COLS_DEFS_RANGE[1]})")
+            # else:
+                # print(f"   Invalid solution with not enough total definitions: {total_defs} not in range ({TOTAL_DEFS_RANGE[0]}, {TOTAL_DEFS_RANGE[1]})")
             return
 
         # Combinaciones posibles para esta fila según las celdas que todavía están disponibles
@@ -240,7 +290,7 @@ def generate_geometry(max_candidates=10):
 
             # Actualitza el total de definicions i comprova si ens hem passat del limit. 
             new_total = total_defs + len(combo)
-            if new_total > MAX_TOTAL_DEFS:
+            if not exists_future_solution(new_total, new_available_cells, row_idx + 1):
                 continue
 
             dfs(row_idx + 1, new_grid, new_col_counts, new_total, new_available_cells)
@@ -300,7 +350,7 @@ def save_grids(solutions, foldername='grids'):
 
 if __name__ == '__main__':
     print_summary()
-    solutions = generate_geometry(max_candidates=100)
+    solutions = generate_geometry(max_candidates=100_000)
     print(f'Generated candidate layouts: {len(solutions["grid"])}')
-    print_examples(solutions)
+    # print_examples(solutions)
     save_grids(solutions)
