@@ -82,7 +82,6 @@ def initialize_available_cells():
 
 
 def update_available_cells(available_cells, grid, row, combo):
-    # TODO: Check que no es crein celles de resposta aillades. -> Hauria d'anar a update_available_combinations?
     # TODO: Check nombre de definicions totals, per columna i per fila i podar -> Hauria d'anar a dfs i una funcion nova?
     # TODO: Limit de nombre de paraules amb cert nombre de lletres. 
     
@@ -96,7 +95,7 @@ def update_available_cells(available_cells, grid, row, combo):
             for r in range(row+1, min(row+MIN_LETTERS_PER_WORD+1, ROWS)):
                 new_available_cells[r][col] = False
 
-        # Si la cella bloqueja una solució horitzontal de la primera columna,
+        # Si la cella bloqueja la primera solució horitzontal d'una cella de la primera columna,
         #   la cella de la primera columna haura de tenir l'altre solució horitzontal.      
         if col <= MIN_LETTERS_PER_WORD and row%2 == 0:
             for c in range(2, MIN_LETTERS_PER_WORD):
