@@ -349,7 +349,7 @@ def save_grids(solutions, foldername='grids'):
 
 if __name__ == '__main__':
     print_summary()
-    solutions = generate_geometry(max_candidates=100_000)
+    solutions = generate_geometry(max_candidates=1)
     print(f'Generated candidate layouts: {len(solutions["grid"])}')
     # print_examples(solutions)
     save_grids(solutions)
