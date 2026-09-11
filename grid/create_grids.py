@@ -235,6 +235,10 @@ def has_connected_solution(grid):
     return visited_count == len(response_cells)
 
 
+class RestartSearch(Exception):
+    pass
+
+
 def generate_geometry(max_candidates=10) -> list[list[bool]]:
     """
     TODO: Fer Docstring
@@ -245,7 +249,6 @@ def generate_geometry(max_candidates=10) -> list[list[bool]]:
     validity_checks = [0]
 
     # TODO: A vegades es queda pillat en un minim local -> investigarho. 
-    # TODO: Quan trobi una solució que no faci un pas enrere per trobar la seguent sino que torni a començar un arbre nou. (es menys eficient pero surten graelles mes diverses)
     # TODO: Assegurar que la densitat de tota la graella es similar i no hi ha zones sobrepoblades i zones sotapoblades. 
     def dfs(row_idx, grid, col_counts, total_defs, available_cells):
         # print(f"    Processing row {row_idx}")
@@ -263,11 +266,12 @@ def generate_geometry(max_candidates=10) -> list[list[bool]]:
                         if (len(solutions) + 1)%1000 == 0:
                             print(f"   Solution {len(solutions) + 1} found! With total definitions: {total_defs}")
                         solutions.append([row[:] for row in grid])
+                        if len(solutions) < max_candidates: # si encara en falten, reiniciem l'arbre de cerca des de zero.
+                            raise RestartSearch()
             return
 
         # Combinaciones posibles para esta fila según las celdas que todavía están disponibles
         row_patterns = update_available_combinations(patterns, available_cells, row_idx)
-        random.shuffle(row_patterns)
 
         for combo in row_patterns: # backtrack algorithm recorre les combinacions. 
 
@@ -302,8 +306,14 @@ def generate_geometry(max_candidates=10) -> list[list[bool]]:
     initial_col_counts = [0] * COLS
     for r, c in FIXED_DEFS:
         initial_col_counts[c] += 1
-
-    dfs(1, initial_grid, initial_col_counts, len(FIXED_DEFS), initial_available_cells) # Començem a la segona fila pk la primera sempre es igual
+    # TODO: Ara es poden generar dues solucions iguals. 
+    while len(solutions) < max_candidates: # cada cop que es troba una solució, es reinicia l'arbre des de la fila 1.
+        try:
+            dfs(1, initial_grid, initial_col_counts, len(FIXED_DEFS), initial_available_cells)
+        except RestartSearch:
+            continue
+        else:
+            break
 
     return solutions
 
