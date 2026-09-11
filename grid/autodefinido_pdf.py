@@ -203,6 +203,6 @@ if __name__ == "__main__":
 
     generar_pdf_autodefinidos(
         matrices=[matriz_ejemplo_1, matriz_ejemplo_2],
-        ruta_salida="/mnt/user-data/outputs/autodefinidos_ejemplo.pdf",
+        ruta_salida="autodefinidos_ejemplo.pdf",
     )
     print("PDF generado correctamente.")

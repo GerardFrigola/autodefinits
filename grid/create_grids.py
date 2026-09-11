@@ -2,6 +2,7 @@
 import random
 import os
 from collections import deque
+from autodefinido_pdf import generar_pdf_autodefinidos
 
 ROWS, COLS = 17, 11
 INNER_ROWS = list(range(1, ROWS - 1))
@@ -234,16 +235,22 @@ def has_connected_solution(grid):
     return visited_count == len(response_cells)
 
 
-def generate_geometry(max_candidates=10):
+def generate_geometry(max_candidates=10) -> list[list[bool]]:
+    """
+    TODO: Fer Docstring
+    """
     print(f'Generating candidate layouts with total definitions <= {MAX_TOTAL_DEFS} and max candidates = {max_candidates}')
     patterns = init_row_patterns()
-    solutions = {"grid": []}
+    solutions = []
     validity_checks = [0]
 
+    # TODO: A vegades es queda pillat en un minim local -> investigarho. 
+    # TODO: Quan trobi una solució que no faci un pas enrere per trobar la seguent sino que torni a començar un arbre nou. (es menys eficient pero surten graelles mes diverses)
+    # TODO: Assegurar que la densitat de tota la graella es similar i no hi ha zones sobrepoblades i zones sotapoblades. 
     def dfs(row_idx, grid, col_counts, total_defs, available_cells):
         # print(f"    Processing row {row_idx}")
 
-        if len(solutions["grid"]) >= max_candidates: # ja hem trobat el numero maxim de possibles taules que volem.
+        if len(solutions) >= max_candidates: # ja hem trobat el numero maxim de possibles taules que volem.
             return
         
         if row_idx == ROWS: # Ja ens hem passat la ultima fila, comprovem.
@@ -253,19 +260,14 @@ def generate_geometry(max_candidates=10):
             if total_defs >= TOTAL_DEFS_RANGE[0]: # comprovar que el numero de definicions esta dins el limit. 
                 if all(COLS_DEFS_RANGE[0] <= col_counts[col] for col in range(1, COLS)): # Comprovar que les columnes tenen el numero de definicions correctes. 
                     if has_connected_solution(grid): # Comprovar que totes les celdes de resposta estan connectades.    
-                        if (len(solutions["grid"]) + 1)%1000 == 0:
-                            print(f"   Solution {len(solutions["grid"]) + 1} found! With total definitions: {total_defs}")
-                        solutions["grid"].append([row[:] for row in grid])
-                        solutions["total_defs"] = total_defs
-                    # print_examples(solutions, limit=1)
-                # else:
-                    # print(f"   Invalid solution with not enough definitions in a column: {col_counts[1:]} not all in range ({COLS_DEFS_RANGE[0]}, {COLS_DEFS_RANGE[1]})")
-            # else:
-                # print(f"   Invalid solution with not enough total definitions: {total_defs} not in range ({TOTAL_DEFS_RANGE[0]}, {TOTAL_DEFS_RANGE[1]})")
+                        if (len(solutions) + 1)%1000 == 0:
+                            print(f"   Solution {len(solutions) + 1} found! With total definitions: {total_defs}")
+                        solutions.append([row[:] for row in grid])
             return
 
         # Combinaciones posibles para esta fila según las celdas que todavía están disponibles
         row_patterns = update_available_combinations(patterns, available_cells, row_idx)
+        random.shuffle(row_patterns)
 
         for combo in row_patterns: # backtrack algorithm recorre les combinacions. 
 
@@ -320,7 +322,7 @@ def print_summary():
 
 
 def print_examples(solutions, limit=5):
-    for idx, grid in enumerate(solutions["grid"][:limit], start=1):
+    for idx, grid in enumerate(solutions[:limit], start=1):
         print_grid = [[ '.' for _ in range(COLS)] for _ in range(ROWS)]
 
         for row in range(ROWS):
@@ -332,24 +334,14 @@ def print_examples(solutions, limit=5):
             print(row)
 
 
-def save_grids(solutions, foldername='grids'):
-    """Guarda cada grid en un archivo de texto."""
-    os.makedirs(foldername, exist_ok=True)
-
-    for idx, grid in enumerate(solutions["grid"], start=1):
-        filename = os.path.join(foldername, f'grid_{idx}.txt')
-
-        with open(filename, 'w', encoding='utf-8') as file:
-            file.write(f"Number of definitions: {solutions["total_defs"]}\n")
-            file.write("Grid:\n\n")
-            for row in grid:
-                line = ''.join('D ' if cell else '. ' for cell in row)
-                file.write(line + '\n')
-
-
 if __name__ == '__main__':
     print_summary()
-    solutions = generate_geometry(max_candidates=1)
-    print(f'Generated candidate layouts: {len(solutions["grid"])}')
+    solutions = generate_geometry(max_candidates=50)
+    print(f'Generated candidate layouts: {len(solutions)}')
     # print_examples(solutions)
-    save_grids(solutions)
+
+    generar_pdf_autodefinidos(
+        matrices=solutions,
+        ruta_salida=f"quadernet_min{MIN_LETTERS_PER_WORD}.pdf"
+        #logo_path="mi_logo.png",  # opcional
+    )
