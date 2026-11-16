@@ -1,1 +1,1 @@
-python create_grids.py > grids_output.txt
+python grid/create_grids.py > outputs/log.txt

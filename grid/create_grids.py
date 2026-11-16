@@ -1,74 +1,64 @@
-﻿from itertools import combinations
+﻿"""
+
+Grid creation utilities for the grid-based puzzle.
+Includes functions to build the initial grid, initialize row patterns, and manage available cells.
+"""
+
+from itertools import combinations
 import random
 import os
 from collections import deque
 from autodefinido_pdf import generar_pdf_autodefinidos
-
-ROWS, COLS = 17, 11
-INNER_ROWS = list(range(1, ROWS - 1))
-INNER_COLS = list(range(1, COLS))
-MIN_LETTERS_PER_WORD = 2
-assert MIN_LETTERS_PER_WORD >= 1, "Minimum letters per word must be at least 1"
-assert MIN_LETTERS_PER_WORD < ROWS/2, "Minimum letters per word must be less than half the number of rows"
-assert MIN_LETTERS_PER_WORD < COLS/2, "Minimum letters per word must be less than half the number of columns"
-
-FIXED_DEFS = {(0, c) for c in range(0, COLS, 2)} |\
-            {(r, 0) for r in range(0, ROWS, 2)}
-
-FIXED_NOT_AVALABLE = {(1, c) for c in range(1, COLS, 2)} |\
-                    {(0, c) for c in range(1, COLS, 2)} |\
-                    {(r, 1) for r in range(1, ROWS, 2)} |\
-                    {(r, 0) for r in range(1, ROWS, 2)} |\
-                    {(r, COLS-1) for r in range(1, MIN_LETTERS_PER_WORD+1)}|\
-                    {(ROWS-1, c) for c in range(1, MIN_LETTERS_PER_WORD+1)} |\
-                    {(r, c) for r in range(ROWS-MIN_LETTERS_PER_WORD, ROWS) for c in range(COLS-MIN_LETTERS_PER_WORD, COLS)}
-                    
-MAX_INNER_DEFS = len(INNER_ROWS) * 2
-MAX_TOTAL_DEFS = len(FIXED_DEFS) + MAX_INNER_DEFS
-
-TOTAL_DEFS_RANGE = (38, 44)
-ROWS_DEFS_RANGE = (0, 2)
-COLS_DEFS_RANGE = (1, 3)
-###
-#------------- 
-#|D.D.D.D.D.D|
-#|.X.X.X.X.XX|
-#|D.........X|
-#|.X.........|
-#|D..........|
-#|.X.........|
-#|D..........|
-#|.X.........|
-#|D..........|
-#|.X.........|
-#|D..........|
-#|.X.........|
-#|D..........|
-#|.X.........|
-#|D..........|
-#|.X.......XX|
-#|DXX......XX|
-#-------------
-###
+from print import _print_summary
+from grid_config import (
+    COLS,
+    COLS_DEFS_RANGE,
+    FIXED_DEFS,
+    FIXED_NOT_AVALABLE,
+    MAX_TOTAL_DEFS,
+    MIN_LETTERS_PER_WORD,
+    OUTPUTS_DIR,
+    ROWS,
+    ROWS_DEFS_RANGE,
+    TOTAL_DEFS_RANGE,
+)
 
 
-def build_initial_grid():
+def _build_initial_grid() -> list[list[bool]]:
+    """
+    Build the initial grid with fixed definitions placed.
+    Cells in FIXED_DEFS are marked as True, all others as False.
+    """
     grid = [[False for _ in range(COLS)] for _ in range(ROWS)]
     for r, c in FIXED_DEFS:
         grid[r][c] = True
     return grid
 
-def init_row_patterns():
+
+def _init_row_patterns():
+    """
+    Genera totes les combinacions possibles de posicions de definicions per a cada fila, sense combinacions consecutives.
+    """
     options = []
-    for k in range(3):
+    for k in range(ROWS_DEFS_RANGE[0], ROWS_DEFS_RANGE[1] + 1):
         for combo in combinations(list(range(1, COLS)), k): # a la primera columna mai posarem definicions. 
-            options.append(combo)
-    random.shuffle(options)
+            if all(
+                combo[i + 1] - combo[i] > 1
+                for i in range(len(combo) - 1)
+            ):
+                options.append(combo)
+
+    random.shuffle(options) # Cada execució serà diferent. 
+    
     print(f"Each row can contain definition cells in these positions (0 based): \n{options}")
     return options
 
 
-def initialize_available_cells():
+def _initialize_available_cells():
+    """
+    Initialize the matrix of available cells for placing definitions.
+    Cells in FIXED_DEFS and FIXED_NOT_AVALABLE are marked as unavailable.
+    """
     matrix = [[True for _ in range(COLS)] for _ in range(ROWS)]
     print_matrix = [[ '.' for _ in range(COLS)] for _ in range(ROWS)]
 
@@ -82,7 +72,19 @@ def initialize_available_cells():
     return matrix
 
 
-def update_available_cells(available_cells, grid, row, combo):
+def _update_available_cells(available_cells: list[list[bool]], grid: list[list[bool]], row: int, combo: list[int]) -> list[list[bool]]:
+    """
+    Update the matrix of available cells after placing a definition in the specified row and columns.
+
+    Args:
+        available_cells (list[list[bool]]): Current state of available cells in the grid.
+        grid (list[list[bool]]): Current state of the grid with placed definitions.
+        row (int): Index of the row where definitions are being placed.
+        combo (list[int]): List of column indices where definitions are placed in the row.
+
+    Returns:
+        list[list[bool]]: Updated matrix of available cells.
+    """
     # TODO: Check nombre de definicions totals, per columna i per fila i podar -> Hauria d'anar a dfs i una funcion nova?
     # TODO: Limit de nombre de paraules amb cert nombre de lletres. 
     
@@ -121,17 +123,25 @@ def update_available_cells(available_cells, grid, row, combo):
                 for r in range(2, MIN_LETTERS_PER_WORD, 2): # Cada 2 perque les altres ja no estan disponibles des de l'inici.
                     new_available_cells[r][1] = False
 
-        # Si la cella bloqueja l'existencia d'una solució horitzontal d'una cella de la 
-        #   seva esquerra, la cella de la seva esquerra haura de tenir solució vertical
-        for c in range(max(1, col-MIN_LETTERS_PER_WORD), col):
-            if grid[row][c] == True:
-                for r in range(row+1, min(row+MIN_LETTERS_PER_WORD+1, ROWS)):
-                    new_available_cells[r][c] = False
+        # Bloqueja les <MIN_LETTERS_PER_WORD> cel·les inferiors de la cel·la actual
+        for r in range(row+1, min(row+MIN_LETTERS_PER_WORD+1, ROWS)):
+            new_available_cells[r][col] = False
 
     return new_available_cells
 
 
-def update_available_combinations(patterns, available_cells, row_idx):
+def _update_available_combinations(patterns: list[list[int]], available_cells: list[list[bool]], row_idx: int) -> list[list[int]]:
+    """
+    Update the available combinations of columns for a given row based on the current state of available cells.
+
+    Args:
+        patterns (list[list[int]]): List of possible column combinations for the row.
+        available_cells (list[list[bool]]): Current state of available cells in the grid.
+        row_idx (int): Index of the row being updated.
+
+    Returns:
+        list[list[int]]: Filtered list of valid column combinations for the row.
+    """
 
     # De todas las combinaciones posibles, 
     #    quédate con las que tienen todas sus posiciones disponibles
@@ -141,28 +151,27 @@ def update_available_combinations(patterns, available_cells, row_idx):
         if all(available_cells[row_idx][col] for col in combo)
     ]
 
+    # Si no es permeten files buides, elimina el patró sense definicions.
+    # if max_empty_rows == 0:
+    #     valid_patterns.remove(())
+
     # No bloquejar les dues solucions verticals de les celles de la primera fila.
     if row_idx < MIN_LETTERS_PER_WORD:
         valid_patterns = [
-            combo
-            for combo in valid_patterns
-            if len(combo) > 1 
-            and 
-            # Doesn't have conseccutive columns where the first is even and the second is odd
-            not any(
-                    combo[i] % 2 == 0 and combo[i + 1] == combo[i] + 1
-                    for i in range(len(combo) - 1)
-                )
+            combo for combo in valid_patterns
+            if not any( # Doesn't have conseccutive columns where the first is even and the second is odd
+                combo[i] % 2 == 0 and combo[i + 1] == combo[i] + 1
+                for i in range(len(combo) - 1)
+            )
         ]
 
-    # Si es de les ultimes files, que estiguin suficientment seaprades, perque no tindran solució vertical. 
+    # Si es de les ultimes files, que estiguin suficientment separades, perque no tindran solució vertical. 
     if row_idx >= ROWS - MIN_LETTERS_PER_WORD:
         valid_patterns = [
             combo
             for combo in valid_patterns
-            if len(combo) < 2
-            or all(
-                combo[i + 1] - combo[i] >= MIN_LETTERS_PER_WORD+1
+            if all(
+                combo[i + 1] - combo[i] >= MIN_LETTERS_PER_WORD + 1
                 for i in range(len(combo) - 1)
             )
         ]
@@ -170,16 +179,14 @@ def update_available_combinations(patterns, available_cells, row_idx):
     return valid_patterns
 
 
-def exists_future_solution(total_defs, available_cells, row_idx):
+def _exists_future_solution(total_defs: int, row_idx: int) -> bool:
     """
-    Checks if there exists a future solution given the current state of the grid and available cells,
-    depending on the current number of definitions and the remaining rows. 
+    Check if there exists a future solution based on the current number of definitions and the remaining rows.
 
     This is used to prune the search space in the DFS algorithm.
 
     Args:
         total_defs (int): The current number of definitions.
-        available_cells (list of list of bool): A matrix indicating which cells are still available for placing definitions.
         row_idx (int): The current row index being processed in the DFS, before placing definitions in it.
     Returns: 
         - True if there exists a future solution, False otherwise. 
@@ -195,10 +202,16 @@ def exists_future_solution(total_defs, available_cells, row_idx):
     return True
 
 
-def has_connected_solution(grid):
+def _has_connected_solution(grid: list[list[bool]]) -> bool:
     """
-    Comprueba que todas las celdas de respuesta, representadas por False,
-    estén conectadas entre sí ortogonalmente.
+    Check that all response cells, represented by False,
+    are orthogonally connected to each other.
+
+    Args:
+        grid (list[list[bool]]): The grid to check.
+
+    Returns:
+        bool: True if all response cells are connected, False otherwise.
     """
 
     visited = [[False for _ in range(COLS)] for _ in range(ROWS)]
@@ -235,112 +248,163 @@ def has_connected_solution(grid):
     return visited_count == len(response_cells)
 
 
-def generate_geometry(max_candidates=10) -> list[list[bool]]:
+def _encode_grid(grid: list[list[bool]]) -> int:
     """
-    TODO: Fer Docstring
+    Encode the grid as an integer by treating each cell as a bit.
+
+    Args:
+        grid (list[list[bool]]): The grid to encode.
+
+    Returns:
+        int: The encoded integer representation of the grid.
     """
-    print(f'Generating candidate layouts with total definitions <= {MAX_TOTAL_DEFS} and max candidates = {max_candidates}')
-    patterns = init_row_patterns()
+    code = 0
+    for bit, cell in enumerate(cell for row in grid for cell in row):
+        if cell:
+            code |= 1 << bit
+    return code
+
+
+def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> list[list[bool]]:
+    """
+    Generate a grid with definitions placed according to the constraints.
+
+    Args:
+        max_candidates (int): Maximum number of candidate solutions to generate.
+        max_attempts (int): Maximum number of attempts to find a valid solution.
+
+    Returns:
+        list[list[bool]]: A grid represented as a list of lists of booleans, where True indicates a definition.
+    """
+
+    patterns = _init_row_patterns()
+    initial_available_cells = _initialize_available_cells()
+    initial_col_counts = [0] * COLS
+    for row, col in FIXED_DEFS:
+        initial_col_counts[col] += 1
+
     solutions = []
+    seen = set()
     validity_checks = [0]
+    attempts = 0
 
-    # TODO: A vegades es queda pillat en un minim local -> investigarho. 
-    # TODO: Quan trobi una solució que no faci un pas enrere per trobar la seguent sino que torni a començar un arbre nou. (es menys eficient pero surten graelles mes diverses)
-    # TODO: Assegurar que la densitat de tota la graella es similar i no hi ha zones sobrepoblades i zones sotapoblades. 
     def dfs(row_idx, grid, col_counts, total_defs, available_cells):
-        # print(f"    Processing row {row_idx}")
-
-        if len(solutions) >= max_candidates: # ja hem trobat el numero maxim de possibles taules que volem.
-            return
-        
-        if row_idx == ROWS: # Ja ens hem passat la ultima fila, comprovem.
+        # Ja s'han assignat totes les files; valida la graella completa.
+        if row_idx == ROWS:
             validity_checks[0] += 1
-            # print(f"Validity check {validity_checks[0]:,}:")
+            print(f"Validity check num. {validity_checks[0]}")
 
-            if total_defs >= TOTAL_DEFS_RANGE[0]: # comprovar que el numero de definicions esta dins el limit. 
-                if all(COLS_DEFS_RANGE[0] <= col_counts[col] for col in range(1, COLS)): # Comprovar que les columnes tenen el numero de definicions correctes. 
-                    if has_connected_solution(grid): # Comprovar que totes les celdes de resposta estan connectades.    
-                        if (len(solutions) + 1)%1000 == 0:
-                            print(f"   Solution {len(solutions) + 1} found! With total definitions: {total_defs}")
-                        solutions.append([row[:] for row in grid])
-            return
+            # Comprova que el nombre total de definicions estigui dins dels limits.
+            if not TOTAL_DEFS_RANGE[0] <= total_defs <= TOTAL_DEFS_RANGE[1]:
+                print(f"    Discarting candidate: Total definitions out of range {TOTAL_DEFS_RANGE} ({total_defs})")
+                return None
+            
+            # Comprova els limits de definicions de cada columna.
+            if not all(
+                COLS_DEFS_RANGE[0] <= col_counts[col] <= COLS_DEFS_RANGE[1]
+                for col in range(1, COLS)
+            ):
+                print(f"    Discarting candidate: Column {col} definitions out of range {COLS_DEFS_RANGE} ({col_counts[col]})")
+                return None
+            
+            # Les caselles de resposta han de continuar formant una zona connectada.
+            if not _has_connected_solution(grid):
+                print(f"    Discarting candidate: Solution not connected")
+                return None
 
-        # Combinaciones posibles para esta fila según las celdas que todavía están disponibles
-        row_patterns = update_available_combinations(patterns, available_cells, row_idx)
+            print(f"    Solution found with total definitions {total_defs}!")
+            return [row.copy() for row in grid]
 
-        for combo in row_patterns: # backtrack algorithm recorre les combinacions. 
+        # Obte les combinacions legals per a aquesta fila i n'aleatoritza l'ordre.
+        row_patterns = _update_available_combinations(
+            patterns, available_cells, row_idx
+        )
+        random.shuffle(row_patterns)
 
-            # copia del estat per cada branca
-            new_grid = [row.copy() for row in grid] 
-            available_cells_copy = [row.copy() for row in available_cells]
-
-            # Afegir cel·la de definició a la fila actual i actualitzar les disponibles. 
+        for combo in row_patterns:
+            # Cada combinacio explora una branca amb copies del seu estat.
+            new_grid = [row.copy() for row in grid]
             for col in combo:
-                new_grid[row_idx][col] = True 
-            new_available_cells = update_available_cells(available_cells_copy, new_grid, row_idx, combo)
+                new_grid[row_idx][col] = True
 
-            # Actualitza numero de definicions per columna. 
+            # Actualitza les posicions bloquejades per les noves definicions.
+            new_available_cells = _update_available_cells(
+                available_cells, new_grid, row_idx, combo
+            )
+
+            # Actualitza el recompte de definicions per columna.
             new_col_counts = col_counts.copy()
             for col in combo:
                 new_col_counts[col] += 1
 
-            # Si alguna columna ha superat el maxim de definicions, descarta la combinació.
-            if any(new_col_counts[col] > COLS_DEFS_RANGE[1] for col in range(1, COLS)):
+            # Poda la branca si alguna columna supera el maxim.
+            if any(
+                new_col_counts[col] > COLS_DEFS_RANGE[1]
+                for col in range(1, COLS)
+            ):
                 continue
 
-            # Actualitza el total de definicions i comprova si ens hem passat del limit. 
             new_total = total_defs + len(combo)
-            if not exists_future_solution(new_total, new_available_cells, row_idx + 1):
+
+            # Poda si ja no es pot assolir el rang total de definicions.
+            if not _exists_future_solution(new_total, row_idx + 1):
                 continue
 
-            dfs(row_idx + 1, new_grid, new_col_counts, new_total, new_available_cells)
+            # Poda abans de continuar si les respostes han quedat desconnectades.
+            if not _has_connected_solution(new_grid):
+                continue
 
-    initial_grid = build_initial_grid()
-    initial_available_cells = initialize_available_cells()
+            solution = dfs(
+                row_idx + 1,
+                new_grid,
+                new_col_counts,
+                new_total,
+                new_available_cells,
+            )
+            
+            if solution is not None:
+                return solution
 
-    initial_col_counts = [0] * COLS
-    for r, c in FIXED_DEFS:
-        initial_col_counts[c] += 1
+        return None
 
-    dfs(1, initial_grid, initial_col_counts, len(FIXED_DEFS), initial_available_cells) # Començem a la segona fila pk la primera sempre es igual
+    # Cada solucio trobada inicia una cerca nova des de la primera fila.
+    while len(solutions) < max_candidates and attempts < max_attempts:
+        attempts += 1
+        candidate = dfs(
+            1,
+            _build_initial_grid(),
+            initial_col_counts,
+            len(FIXED_DEFS),
+            initial_available_cells,
+        )
+        if candidate is None:
+            break
+
+        signature = _encode_grid(candidate)
+        if signature not in seen:
+            seen.add(signature)
+            solutions.append(candidate)
+
+    print(
+        f"Unique solutions: {len(solutions)}; attempts: {attempts}; "
+        f"complete grids checked: {validity_checks[0]}"
+    )
+    if len(solutions) < max_candidates and attempts >= max_attempts:
+        print("Maximum search attempts reached before finding all requested solutions.")
 
     return solutions
 
 
-def print_summary():
-    print('Table: 11x17')
-    print(f'Fixed cells on first row/column: {len(FIXED_DEFS)}')
-    print(f'Max definition cells in the interior: {MAX_INNER_DEFS}')
-    print(f'Max total definition cells: {MAX_TOTAL_DEFS}')
-    print(f'Original requested range: {TOTAL_DEFS_RANGE}')
-    print()
-    if TOTAL_DEFS_RANGE[0] > MAX_TOTAL_DEFS:
-        print('WARNING: 36..41 is impossible under the corrected geometry, because the maximum total is 41.')
-    else:
-        print('The requested range is still possible only if other rules are relaxed or redefined.')
-
-
-def print_examples(solutions, limit=5):
-    for idx, grid in enumerate(solutions[:limit], start=1):
-        print_grid = [[ '.' for _ in range(COLS)] for _ in range(ROWS)]
-
-        for row in range(ROWS):
-            for col in range(COLS):
-                print_grid[row][col] = 'D' if grid[row][col] else '.'
-
-        print(f'\nExample {idx}:')
-        for row in print_grid:
-            print(row)
-
-
 if __name__ == '__main__':
-    print_summary()
+    _print_summary()
     solutions = generate_geometry(max_candidates=50)
-    print(f'Generated candidate layouts: {len(solutions)}')
-    # print_examples(solutions)
+    print(f'Generated unique candidate layouts: {len(solutions)}')
 
+    os.makedirs(OUTPUTS_DIR, exist_ok=True)
     generar_pdf_autodefinidos(
         matrices=solutions,
-        ruta_salida=f"quadernet_min{MIN_LETTERS_PER_WORD}.pdf"
-        #logo_path="mi_logo.png",  # opcional
+        ruta_salida=os.path.join(
+            OUTPUTS_DIR, f"quadernet_min{MIN_LETTERS_PER_WORD}.pdf"
+        ),
+        min_letters_per_word=MIN_LETTERS_PER_WORD,
     )

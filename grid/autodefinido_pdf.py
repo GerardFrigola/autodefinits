@@ -1,5 +1,7 @@
 """
+
 Generador de paginas imprimibles para autodefinidos (crucigramas sin numeros/letras).
+Incluye funciones para validar la matriz, calcular la geometria de la cuadricula y obtener los inicios de respuestas.
 
 Cada autodefinido se representa como una matriz (lista de listas) de booleanos:
     True  -> casilla de DEFINICION (se pinta mas oscura)
@@ -14,6 +16,7 @@ Requiere: reportlab  (pip install reportlab)
 
 from __future__ import annotations
 
+import os
 from typing import List, Sequence, Optional
 from reportlab.lib.pagesizes import A5
 from reportlab.lib.units import mm
@@ -37,6 +40,7 @@ MARGIN_RIGHT = 12 * mm
 COLOR_DEFINICION = Color(0.20, 0.20, 0.20)   # gris oscuro para casillas True
 COLOR_RESPUESTA = Color(1, 1, 1)             # blanco para casillas False
 COLOR_BORDE = Color(0, 0, 0)                 # negro para el contorno de celdas
+COLOR_FLECHA = Color(0, 0, 0)
 
 GROSOR_BORDE_CELDA = 0.6          # pt, borde de cada celda individual
 GROSOR_BORDE_EXTERIOR = 1.3       # pt, borde exterior de toda la cuadricula
@@ -80,8 +84,145 @@ def _calcular_geometria_cuadricula(filas: int, columnas: int):
     return cell, x0, y0, ancho_grid, alto_grid
 
 
+def _obtener_inicios_respuestas(
+    matriz: Sequence[Sequence[bool]],
+    fila: int,
+    columna: int,
+    min_letters_per_word: int,
+) -> List[tuple[int, int, str, str]]:
+    filas = len(matriz)
+    columnas = len(matriz[0])
+
+    if fila == 0 and columna == 0:
+        candidates = [
+            (fila, columna + 1, "right", "down"),
+            (fila + 1, columna, "below", "right"),
+        ]
+    elif fila == 0:
+        if columna == columnas - 1:
+            candidates = [(fila + 1, columna, "below", "down")]
+        else:
+            candidates = [
+                (fila, columna + 1, "right", "down"),
+                (fila + 1, columna, "below", "down"),
+            ]
+    elif columna == 0:
+        if fila == filas - 1:
+            candidates = [(fila, columna + 1, "right", "right")]
+        else:
+            candidates = [
+                (fila, columna + 1, "right", "right"),
+                (fila + 1, columna, "below", "right"),
+            ]
+    elif fila == filas - 1 and columna == columnas - 1:
+        candidates = []
+    elif fila == filas - 1:
+        candidates = [(fila, columna + 1, "right", "right")]
+    elif columna == columnas - 1:
+        candidates = [(fila + 1, columna, "below", "down")]
+    else:
+        candidates = [
+            (fila, columna + 1, "right", "right"),
+            (fila + 1, columna, "below", "down"),
+        ]
+
+    return [
+        (start_row, start_column, entry_side, direction)
+        for start_row, start_column, entry_side, direction in candidates
+        if start_row < filas
+        and start_column < columnas
+        and not matriz[start_row][start_column]
+        and _tiene_longitud_minima(
+            matriz, start_row, start_column, direction, min_letters_per_word
+        )
+    ]
+
+
+def _tiene_longitud_minima(
+    matriz: Sequence[Sequence[bool]],
+    fila: int,
+    columna: int,
+    direction: str,
+    min_letters_per_word: int,
+) -> bool:
+    delta_fila, delta_columna = (1, 0) if direction == "down" else (0, 1)
+    longitud = 0
+
+    while (
+        fila < len(matriz)
+        and columna < len(matriz[0])
+        and not matriz[fila][columna]
+    ):
+        longitud += 1
+        fila += delta_fila
+        columna += delta_columna
+
+    return longitud >= min_letters_per_word
+
+
+def _dibujar_flechas(c: canvas.Canvas, flechas: Sequence[tuple[str, str]],
+                    x: float, y: float, cell: float) -> None:
+    if not flechas:
+        return
+
+    c.setStrokeColor(COLOR_FLECHA)
+    c.setFillColor(COLOR_FLECHA)
+    c.setLineWidth(max(0.6, cell * 0.025))
+    head_length = cell * 0.12
+    head_half_width = cell * 0.08
+
+    for entry_side, direction in flechas:
+        center_x = x + cell * 0.5
+        center_y = y + cell * 0.5
+        arrow_head_length = head_length
+        arrow_head_half_width = head_half_width
+
+        if entry_side == "right" and direction == "down":
+            arrow_head_length = cell * 0.06
+            arrow_head_half_width = cell * 0.05
+            bend_x = x + cell * 0.25
+            bend_y = y + cell * (11 / 12)
+            tip_x = bend_x
+            tip_y = y + cell * (2 / 3)
+            c.line(x, bend_y, bend_x, bend_y)
+            c.line(bend_x, bend_y, tip_x, tip_y + arrow_head_length)
+        elif entry_side == "below" and direction == "right":
+            arrow_head_length = cell * 0.06
+            arrow_head_half_width = cell * 0.05
+            bend_x = x + cell * 0.125
+            bend_y = y + cell * 0.75
+            tip_x = x + cell * 0.375
+            tip_y = bend_y
+            c.line(bend_x, y + cell, bend_x, bend_y)
+            c.line(bend_x, bend_y, tip_x - arrow_head_length, tip_y)
+        elif direction == "right":
+            arrow_head_length = cell * 0.06
+            arrow_head_half_width = cell * 0.05
+            tip_x = x + cell * 0.25
+            tip_y = y + cell * (2 / 3)
+            c.line(x, tip_y, tip_x - arrow_head_length, tip_y)
+        else:
+            arrow_head_length = cell * 0.06
+            arrow_head_half_width = cell * 0.05
+            tip_x = center_x
+            tip_y = y + cell * 0.75
+            c.line(center_x, y + cell, center_x, tip_y + arrow_head_length)
+
+        path = c.beginPath()
+        path.moveTo(tip_x, tip_y)
+        if direction == "right":
+            path.lineTo(tip_x - arrow_head_length, tip_y - arrow_head_half_width)
+            path.lineTo(tip_x - arrow_head_length, tip_y + arrow_head_half_width)
+        else:
+            path.lineTo(tip_x - arrow_head_half_width, tip_y + arrow_head_length)
+            path.lineTo(tip_x + arrow_head_half_width, tip_y + arrow_head_length)
+        path.close()
+        c.drawPath(path, stroke=0, fill=1)
+
+
 def _dibujar_pagina(c: canvas.Canvas, matriz: Sequence[Sequence[bool]],
-                     numero_pagina: Optional[int], total_paginas: Optional[int]) -> None:
+                     numero_pagina: Optional[int], total_paginas: Optional[int],
+                     min_letters_per_word: int) -> None:
     _validar_matriz(matriz)
     filas = len(matriz)
     columnas = len(matriz[0])
@@ -101,6 +242,27 @@ def _dibujar_pagina(c: canvas.Canvas, matriz: Sequence[Sequence[bool]],
             c.setStrokeColor(COLOR_BORDE)
             c.setLineWidth(GROSOR_BORDE_CELDA)
             c.rect(x_celda, y_celda, cell, cell, fill=1, stroke=1)
+
+    flechas_por_casilla = {}
+    for fila_idx, fila in enumerate(matriz):
+        for col_idx, es_definicion in enumerate(fila):
+            if not es_definicion:
+                continue
+            inicios = _obtener_inicios_respuestas(
+                matriz, fila_idx, col_idx, min_letters_per_word
+            )
+            for start_row, start_column, entry_side, direction in inicios:
+                posiciones = flechas_por_casilla.setdefault(
+                    (start_row, start_column), []
+                )
+                flecha = (entry_side, direction)
+                if flecha not in posiciones:
+                    posiciones.append(flecha)
+
+    for (fila, columna), flechas in flechas_por_casilla.items():
+        x_flecha = x0 + columna*cell
+        y_flecha = y0 + alto_grid - (fila + 1)*cell
+        _dibujar_flechas(c, flechas, x_flecha, y_flecha, cell)
 
     # Borde exterior mas grueso para que la cuadricula destaque como bloque
     c.setStrokeColor(COLOR_BORDE)
@@ -149,6 +311,7 @@ def generar_pdf_autodefinidos(
     ruta_salida: str,
     logo_path: Optional[str] = None,
     numeracion_inicial: int = 1,
+    min_letters_per_word: int = 2,
 ) -> None:
     """Genera un PDF con una pagina A5 vertical por cada matriz de la lista.
 
@@ -160,16 +323,21 @@ def generar_pdf_autodefinidos(
         logo_path: ruta opcional a una imagen (PNG/JPG) para incluir en la
                    esquina superior de cada pagina.
         numeracion_inicial: numero desde el que empieza la numeracion de paginas.
+        min_letters_per_word: longitud minima para que una respuesta tenga flecha.
     """
     if not matrices:
         raise ValueError("Debes proporcionar al menos una matriz.")
+    if min_letters_per_word < 1:
+        raise ValueError("min_letters_per_word debe ser al menos 1.")
 
     total_paginas = len(matrices)
     c = canvas.Canvas(ruta_salida, pagesize=A5)
 
     for i, matriz in enumerate(matrices):
         numero_pagina = numeracion_inicial + i
-        _dibujar_pagina(c, matriz, numero_pagina, total_paginas)
+        _dibujar_pagina(
+            c, matriz, numero_pagina, total_paginas, min_letters_per_word
+        )
         if logo_path:
             dibujar_logo(c, logo_path)
         c.showPage()
@@ -201,8 +369,12 @@ if __name__ == "__main__":
         [True, False, False, False, False, True, False, True],
     ]
 
+    outputs_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outputs"
+    )
+    os.makedirs(outputs_dir, exist_ok=True)
     generar_pdf_autodefinidos(
         matrices=[matriz_ejemplo_1, matriz_ejemplo_2],
-        ruta_salida="autodefinidos_ejemplo.pdf",
+        ruta_salida=os.path.join(outputs_dir, "autodefinidos_ejemplo.pdf"),
     )
     print("PDF generado correctamente.")
