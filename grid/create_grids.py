@@ -265,7 +265,7 @@ def _encode_grid(grid: list[list[bool]]) -> int:
     return code
 
 
-def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> list[list[bool]]:
+def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> list[list[list[bool]]]:
     """
     Generate a grid with definitions placed according to the constraints.
 
@@ -274,7 +274,7 @@ def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> l
         max_attempts (int): Maximum number of attempts to find a valid solution.
 
     Returns:
-        list[list[bool]]: A grid represented as a list of lists of booleans, where True indicates a definition.
+        list[list[list[bool]]]: A list of grids, each represented as a list of lists of booleans, where True indicates a definition.
     """
 
     patterns = _init_row_patterns()
@@ -288,7 +288,7 @@ def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> l
     validity_checks = [0]
     attempts = 0
 
-    def dfs(row_idx, grid, col_counts, total_defs, available_cells):
+    def dfs(row_idx: int, grid: list[list[bool]], col_counts: list[int], total_defs: int, available_cells: list[list[bool]]) -> list[list[bool]] | None:
         # Ja s'han assignat totes les files; valida la graella completa.
         if row_idx == ROWS:
             validity_checks[0] += 1
@@ -300,11 +300,12 @@ def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> l
                 return None
             
             # Comprova els limits de definicions de cada columna.
-            if not all(
-                COLS_DEFS_RANGE[0] <= col_counts[col] <= COLS_DEFS_RANGE[1]
-                for col in range(1, COLS)
-            ):
-                print(f"    Discarting candidate: Column {col} definitions out of range {COLS_DEFS_RANGE} ({col_counts[col]})")
+            bad = [
+                c for c in range(1, COLS)
+                if not COLS_DEFS_RANGE[0] <= col_counts[c] <= COLS_DEFS_RANGE[1]
+            ]
+            if bad:
+                print(f"    Discarting candidate: columns {bad} out of range {COLS_DEFS_RANGE}")
                 return None
             
             # Les caselles de resposta han de continuar formant una zona connectada.
@@ -394,17 +395,3 @@ def generate_geometry(max_candidates: int = 10, max_attempts: int = 10_000) -> l
 
     return solutions
 
-
-if __name__ == '__main__':
-    _print_summary()
-    solutions = generate_geometry(max_candidates=50)
-    print(f'Generated unique candidate layouts: {len(solutions)}')
-
-    os.makedirs(OUTPUTS_DIR, exist_ok=True)
-    generar_pdf_autodefinidos(
-        matrices=solutions,
-        ruta_salida=os.path.join(
-            OUTPUTS_DIR, f"quadernet_min{MIN_LETTERS_PER_WORD}.pdf"
-        ),
-        min_letters_per_word=MIN_LETTERS_PER_WORD,
-    )
